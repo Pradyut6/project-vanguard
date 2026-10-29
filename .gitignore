@@ -1,0 +1,23 @@
+# Secrets and Environment Variables
+.env
+*.env
+!.env.example
+*.pem
+*.key
+*kubeconfig*
+
+# Python & Virtual Env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Terraform / Ansible / Local State
+.terraform/
+*.tfstate
+*.tfstate.*
+*.retry
+
+# OS & Editor files
+.DS_Store
+.vscode/
