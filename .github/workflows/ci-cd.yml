@@ -1,0 +1,57 @@
+name: Vanguard CI/CD & Ubuntu CVE Security Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  lint-build-and-scan:
+    name: Lint, Build Ubuntu 24.04 Image & Scan USNs
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies and Flake8 linter
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 -r app/requirements.txt
+
+      - name: Run Python syntax and critical error checks
+        run: |
+          flake8 app/main.py --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Build hardened Ubuntu 24.04 Docker image
+        run: |
+          docker build -t vanguard-api:${{ github.sha }} ./app
+
+      - name: Run Smoke Test on Ubuntu 24.04 Container
+        run: |
+          docker run --rm vanguard-api:${{ github.sha }} python3 -c "import main; print('App module verified')"
+
+      - name: Scan Ubuntu 24.04 Image for High/Critical CVEs with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "vanguard-api:${{ github.sha }}"
+          format: "table"
+          exit-code: "0"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+
+      - name: Validate Kubernetes Manifests with Kubeconform
+        run: |
+          wget -q https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform-linux-amd64.tar.gz
+          ./kubeconform -summary -strict k8s/base/ k8s/storage/
