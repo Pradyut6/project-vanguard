@@ -1,0 +1,64 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: vanguard-block-storage
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vanguard-db
+  namespace: vanguard
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: vanguard-db
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vanguard-db
+  namespace: vanguard
+spec:
+  serviceName: "vanguard-db"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vanguard-db
+  template:
+    metadata:
+      labels:
+        app: vanguard-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: vanguard-db-secret
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-block-data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-block-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: vanguard-block-storage
+        resources:
+          requests:
+            storage: 2Gi

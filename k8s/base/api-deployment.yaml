@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vanguard-api
+  namespace: vanguard
+  labels:
+    app: vanguard-api
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      nodePort: 30080
+  selector:
+    app: vanguard-api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vanguard-api
+  namespace: vanguard
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vanguard-api
+  template:
+    metadata:
+      labels:
+        app: vanguard-api
+    spec:
+      containers:
+        - name: api
+          image: vanguard-api:0.1.0
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: vanguard-db-secret
+          env:
+            - name: POSTGRES_HOST
+              value: "vanguard-db"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: ENABLE_CHAOS_ENDPOINTS
+              value: "true"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15

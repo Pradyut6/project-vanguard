@@ -1,0 +1,99 @@
+---
+- name: Prepare Ubuntu 24.04 LXD Nodes for Kubernetes Kubelet
+  hosts: vanguard_cluster
+  gather_facts: true
+  tasks:
+    - name: Create shared mount propagation service required by Kubernetes in LXD
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/rshared-mount.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Make root mount shared for Kubernetes Kubelet and CSI storage
+          DefaultDependencies=no
+          Before=sysinit.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/bin/mount --make-rshared /
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start rshared-mount service
+      ansible.builtin.systemd:
+        name: rshared-mount
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Allow Kubernetes Flannel VXLAN (UDP 8472) and Kubelet (TCP 10250/6443) in UFW
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: "{{ item.proto }}"
+      loop:
+        - { port: "6443", proto: "tcp" }
+        - { port: "10250", proto: "tcp" }
+        - { port: "8472", proto: "udp" }
+        - { port: "30000:32767", proto: "tcp" }
+
+- name: Bootstrap Kubernetes Control Plane on vanguard-node-1
+  hosts: control_plane
+  gather_facts: true
+  tasks:
+    - name: Install K3s Kubernetes Control Plane
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --node-ip=10.240.0.11 --flannel-iface=eth0 --write-kubeconfig-mode=644 --disable=traefik --kubelet-arg=feature-gates=KubeletInUserNamespace=true" sh -
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Ensure K3s Control Plane service is running
+      ansible.builtin.systemd:
+        name: k3s
+        state: started
+        enabled: true
+
+    - name: Wait for Control Plane node-token to be generated
+      ansible.builtin.wait_for:
+        path: /var/lib/rancher/k3s/server/node-token
+        state: present
+        timeout: 60
+
+    - name: Read Kubernetes join token
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_b64
+
+    - name: Set join token fact
+      ansible.builtin.set_fact:
+        k3s_node_token: "{{ k3s_token_b64.content | b64decode | trim }}"
+
+    - name: Cache K3s binary on WSL host to avoid re-downloading on worker nodes
+      ansible.builtin.fetch:
+        src: /usr/local/bin/k3s
+        dest: /tmp/k3s-binary
+        flat: true
+
+- name: Join Ubuntu Worker Nodes to Kubernetes Cluster
+  hosts: workers
+  gather_facts: true
+  tasks:
+    - name: Copy cached K3s binary to worker nodes
+      ansible.builtin.copy:
+        src: /tmp/k3s-binary
+        dest: /usr/local/bin/k3s
+        mode: "0755"
+
+    - name: Install K3s Agent and join Control Plane (Skip slow internet download)
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_DOWNLOAD=true K3S_URL="https://10.240.0.11:6443" K3S_TOKEN="{{ hostvars['vanguard-node-1']['k3s_node_token'] }}" INSTALL_K3S_EXEC="agent --node-ip={{ ansible_host }} --flannel-iface=eth0 --kubelet-arg=feature-gates=KubeletInUserNamespace=true" sh -
+      args:
+        creates: /etc/systemd/system/k3s-agent.service
+
+    - name: Ensure K3s Agent service is started
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: started
+        enabled: true
