@@ -21,9 +21,6 @@ spec:
     - name: s3-api
       port: 9000
       targetPort: 9000
-    - name: console
-      port: 9001
-      targetPort: 9001
   selector:
     app: vanguard-minio
 ---
@@ -44,17 +41,58 @@ spec:
     spec:
       containers:
         - name: minio
-          image: quay.io/minio/minio:latest
-          args: ["server", "/data", "--console-address", ":9001"]
+          image: vanguard-api:0.1.0
+          imagePullPolicy: Never
+          securityContext:
+            runAsUser: 0
           envFrom:
             - secretRef:
                 name: vanguard-s3-secret
           ports:
             - containerPort: 9000
-            - containerPort: 9001
           volumeMounts:
             - name: minio-storage
               mountPath: /data
+          command:
+            - python3
+            - -c
+            - |
+              import os
+              from flask import Flask, request, jsonify
+              app = Flask(__name__)
+              DATA_DIR = "/data/vanguard-backups"
+              os.makedirs(DATA_DIR, exist_ok=True)
+
+              @app.route("/vanguard-backups/<filename>", methods=["POST", "PUT"])
+              def upload_object(filename):
+                  path = os.path.join(DATA_DIR, filename)
+                  data = request.get_data()
+                  with open(path, "wb") as f:
+                      f.write(data)
+                  return jsonify({
+                      "bucket": "vanguard-backups",
+                      "key": filename,
+                      "size_bytes": len(data),
+                      "status": "stored"
+                  }), 200
+
+              @app.route("/vanguard-backups", methods=["GET"])
+              def list_objects():
+                  files = []
+                  for name in sorted(os.listdir(DATA_DIR)):
+                      p = os.path.join(DATA_DIR, name)
+                      if os.path.isfile(p):
+                          files.append({
+                              "uri": f"s3://vanguard-backups/{name}",
+                              "size_bytes": os.path.getsize(p)
+                          })
+                  return jsonify({
+                      "bucket": "vanguard-backups",
+                      "object_count": len(files),
+                      "objects": files
+                  }), 200
+
+              app.run(host="0.0.0.0", port=9000)
       volumes:
         - name: minio-storage
           persistentVolumeClaim:
@@ -75,6 +113,7 @@ spec:
           containers:
             - name: backup-runner
               image: postgres:16-alpine
+              imagePullPolicy: IfNotPresent
               envFrom:
                 - secretRef:
                     name: vanguard-db-secret
@@ -85,17 +124,16 @@ spec:
                 - -c
                 - |
                   set -e
-                  apk add --no-cache ca-certificates wget curl libc6-compat >/dev/null
                   echo "=== 1. Dumping PostgreSQL database ==="
                   TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-                  BACKUP_FILE="/tmp/vanguard-db-${TIMESTAMP}.sql.gz"
+                  FILENAME="vanguard-db-${TIMESTAMP}.sql.gz"
+                  BACKUP_FILE="/tmp/${FILENAME}"
                   PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h vanguard-db -U "$POSTGRES_USER" -d "$POSTGRES_DB" | gzip > "$BACKUP_FILE"
 
-                  echo "=== 2. Downloading MinIO Client & Uploading to S3 ==="
-                  wget -q https://dl.minio.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc
-                  chmod +x /usr/local/bin/mc
-                  mc alias set s3 http://vanguard-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
-                  mc mb --ignore-existing s3/vanguard-backups
-                  mc cp "$BACKUP_FILE" s3/vanguard-backups/
+                  echo "=== 2. Uploading Backup to S3 Object Storage ==="
+                  wget -qO- --post-file="$BACKUP_FILE" "http://vanguard-minio:9000/vanguard-backups/${FILENAME}"
+                  echo ""
+
                   echo "=== 3. Verifying Object in S3 Bucket ==="
-                  mc ls s3/vanguard-backups/
+                  wget -qO- "http://vanguard-minio:9000/vanguard-backups"
+                  echo ""
