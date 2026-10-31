@@ -61,19 +61,21 @@ graph TB
     KCONF --> K8S
     HOST --> K8S
     K8S --> OBS
+```
 
 ## Technology Stack & Engineering Scope
 
-| Domain                    | Technologies                                     | Engineering Implementation                                        |
-| ------------------------- | ------------------------------------------------ | ----------------------------------------------------------------- |
-| Linux & Virtualization    | Ubuntu 24.04 LTS, Canonical LXD                  | Multi-node system containers with custom bridge networking        |
-| System Networking         | iproute2, UFW, VXLAN, tcpdump                    | Bridge MTU 1500 vs VXLAN MTU 1450 tuning and host firewalling     |
-| Configuration & Lifecycle | Ansible, unattended-upgrades, dpkg               | Automated security pocket patching and package version pinning    |
-| Orchestration & Storage   | Kubernetes (K3s/k3d), StatefulSet, MinIO         | ReadWriteOnce block persistence and automated S3 database backups |
-| CI/CD & Observability     | GitHub Actions, Trivy, Prometheus, Loki, Grafana | CVE/USN pipeline scanning and unified metrics/log correlation     |
+| Domain | Technologies | Engineering Implementation |
+| :--- | :--- | :--- |
+| **Linux & Virtualization** | Ubuntu 24.04 LTS, Canonical LXD | Multi-node system containers with custom bridge networking |
+| **System Networking** | iproute2, UFW, VXLAN, tcpdump | Bridge MTU 1500 vs VXLAN MTU 1450 tuning and host firewalling |
+| **Configuration & Lifecycle** | Ansible, unattended-upgrades, dpkg | Automated security pocket patching and package version pinning |
+| **Orchestration & Storage** | Kubernetes (K3s/k3d), StatefulSet, MinIO | ReadWriteOnce block persistence and automated S3 database backups |
+| **CI/CD & Observability** | GitHub Actions, Trivy, Prometheus, Loki, Grafana | CVE/USN pipeline scanning and unified metrics/log correlation |
 
 # Repository Structure
 
+```text
 project-vanguard/
 ├── .github/workflows/
 │   └── ci-cd.yml                                      # CI/CD pipeline with Trivy USN scan & Kubeconform
@@ -102,17 +104,17 @@ project-vanguard/
 │   └── provision-nodes.sh                             # Automated LXD bridge & 3-node Ubuntu 24.04 bootstrap
 ├── .env.example                                       # Environment template (Zero secrets stored in Git)
 └── docker-compose.yml                                 # Local multi-container integration test stack
-
+```
 
 ## Quick-Start Reproduction Guide
-1. Provision Ubuntu 24.04 Nodes, Networking & Lifecycle Governance
+1. **Provision Ubuntu 24.04 Nodes, Networking & Lifecycle Governance**
     ```bash
     sg lxd -c "./scripts/provision-nodes.sh"
     ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/site-networking.yml
     ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/ubuntu-lifecycle.yml
     ```
 
-2. Deploy Kubernetes Storage, Application & Observability Stack
+2. **Deploy Kubernetes Storage, Application & Observability Stack**
     ```bash
     docker build -t vanguard-api:0.1.0 ./app
     k3d cluster create vanguard --servers 1 --agents 2 -p "30080:30080@server:0" -p "30300:30300@server:0" --k3s-arg "--disable=traefik@server:0"
@@ -122,10 +124,10 @@ project-vanguard/
     kubectl apply -f k8s/storage/minio-s3-backup.yaml
     kubectl apply -f k8s/base/api-deployment.yaml
     kubectl apply -f k8s/monitoring/observability-stack.yaml
-
-3. Verify Health, S3 Backups & Observability Endpoints
+    ```
+3. **Verify Health, S3 Backups & Observability Endpoints**
     Microservice Health Check: 
     ```bash
     curl -s http://localhost:30080/health | python3 -m json.tool
     ```
-    Grafana UI (Prometheus + Loki): http://localhost:30300
+    **Grafana UI (Prometheus + Loki):** http://localhost:30300
