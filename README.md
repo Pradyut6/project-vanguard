@@ -1,5 +1,7 @@
 # Project Vanguard: Ubuntu 24.04 Cloud-Native Platform & Reliability Engineering Suite
 
+[![Vanguard CI/CD & Ubuntu CVE Security Pipeline](https://github.com/Pradyut6/project-vanguard/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Pradyut6/project-vanguard/actions/workflows/ci-cd.yml)
+
 An end-to-end Cloud and DevOps engineering portfolio project built on **Ubuntu 24.04 LTS (Noble Numbat)**. Project Vanguard pairs automated multi-node infrastructure provisioning, Kubernetes stateful orchestration, CI/CD CVE scanning, and full-stack observability with **three production Root-Cause Analysis (RCA) Knowledge Base runbooks**.
 
 ## 5-Minute Recruiter & Hiring Manager Tour

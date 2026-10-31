@@ -5,6 +5,7 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
   lint-build-and-scan:
@@ -38,20 +39,22 @@ jobs:
 
       - name: Run Smoke Test on Ubuntu 24.04 Container
         run: |
-          docker run --rm vanguard-api:${{ github.sha }} python3 -c "import main; print('App module verified')"
+          docker run --rm -w /app vanguard-api:${{ github.sha }} python3 -c "import main; print('App module verified')"
 
       - name: Scan Ubuntu 24.04 Image for High/Critical CVEs with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: "vanguard-api:${{ github.sha }}"
-          format: "table"
-          exit-code: "0"
-          ignore-unfixed: true
-          vuln-type: "os,library"
-          severity: "CRITICAL,HIGH"
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            ghcr.io/aquasecurity/trivy:latest image \
+            --format table \
+            --exit-code 0 \
+            --ignore-unfixed \
+            --scanners vuln \
+            --severity CRITICAL,HIGH \
+            vanguard-api:${{ github.sha }}
 
       - name: Validate Kubernetes Manifests with Kubeconform
         run: |
           wget -q https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
           tar xf kubeconform-linux-amd64.tar.gz
-          ./kubeconform -summary -strict k8s/base/ k8s/storage/
+          ./kubeconform -summary -strict k8s/base/ k8s/storage/ k8s/monitoring/
